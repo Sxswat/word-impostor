@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { io } from "socket.io-client";
 import "./App.css";
 
-const BACKEND_URL = "http://localhost:3001";
+const BACKEND_URL = "https://word-impostor-zyxb.onrender.com";
 const socket = io(BACKEND_URL, { autoConnect: false });
 
 const AVATAR_COLORS = ["#7c3aed","#06b6d4","#f59e0b","#ef4444","#22c55e","#ec4899","#8b5cf6","#14b8a6","#f97316","#84cc16","#e879f9","#38bdf8","#fb923c","#a3e635","#34d399"];
