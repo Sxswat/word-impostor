@@ -103,7 +103,7 @@ export default function App() {
       socket.off("rejoined");
       socket.off("rejoin_failed");
     };
-  }, []);
+  }, [playerName]);
 
   function createRoom() {
     if (!playerName.trim()) { setError("Enter your name first!"); return; }
