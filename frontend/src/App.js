@@ -241,7 +241,7 @@ function VotingScreen({ players, playerId, selectedVote, hasVoted, votesCount, c
 
 function ResultsScreen({ results, players, playerId, isHost, startNextRound, endGame }) {
   if (!results) return null;
-  const { impostorId, impostorName, impostorPoints, correctVotes, nonImpostorCount, word, category, voteBreakdown } = results;
+  const { impostorId, impostorName, impostorPoints, correctVotes, nonImpostorCount, word, category } = results;
   return (
     <div className="page">
       <div className="card card-wide">
