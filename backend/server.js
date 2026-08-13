@@ -127,7 +127,14 @@ io.on("connection", (socket) => {
   socket.on("join_room", ({ roomCode, playerName }) => {
     const room = rooms[roomCode];
     if (!room) { socket.emit("error", { message: "Room not found! Check the code." }); return; }
-    if (room.gameState !== "lobby") { socket.emit("error", { message: "Game already started!" }); return; }
+    if (room.gameState !== "lobby") {
+      // Allow rejoin if player was already in the room
+      const existingPlayer = room.players.find(p => p.name === playerName);
+      if (!existingPlayer) {
+        socket.emit("error", { message: "Game already started!" }); 
+        return; 
+      }
+    }
     if (room.players.length >= 15) { socket.emit("error", { message: "Room is full!" }); return; }
 
     room.players.push({
@@ -217,13 +224,75 @@ io.on("connection", (socket) => {
     const roomCode = socket.roomCode;
     if (!roomCode || !rooms[roomCode]) return;
     const room = rooms[roomCode];
-    room.players = room.players.filter(p => p.id !== socket.id);
-    if (room.players.length === 0) { delete rooms[roomCode]; return; }
-    if (room.hostId === socket.id) {
-      room.hostId = room.players[0].id;
-      room.players[0].isHost = true;
+
+    // Mark player as disconnected instead of removing them
+    const player = room.players.find(p => p.id === socket.id);
+    if (player) {
+      player.disconnected = true;
+      player.oldId = socket.id;
     }
+
+    // Give them 30 seconds to rejoin before removing them
+    setTimeout(() => {
+      if (!rooms[roomCode]) return;
+      const p = room.players.find(p => p.oldId === socket.id && p.disconnected);
+      if (p) {
+        room.players = room.players.filter(p => p.oldId !== socket.id);
+        if (room.players.length === 0) { delete rooms[roomCode]; return; }
+        if (room.hostId === socket.id && room.players.length > 0) {
+          room.hostId = room.players[0].id;
+          room.players[0].isHost = true;
+        }
+        io.to(roomCode).emit("players_updated", { players: room.players });
+      }
+    }, 30000);
+
     io.to(roomCode).emit("players_updated", { players: room.players });
+  });
+
+  socket.on("rejoin_room", ({ roomCode, playerName, isHost }) => {
+    const room = rooms[roomCode];
+    if (!room) { 
+      socket.emit("rejoin_failed"); 
+      return; 
+    }
+
+    // Find the disconnected player by name
+    const existingPlayer = room.players.find(p => p.name === playerName);
+    if (!existingPlayer) { 
+      socket.emit("rejoin_failed"); 
+      return; 
+    }
+
+    // Update their socket ID to the new connection
+    const oldId = existingPlayer.id;
+    existingPlayer.id = socket.id;
+    existingPlayer.disconnected = false;
+
+    // If this player was the host, update hostId
+    if (room.hostId === oldId) {
+      room.hostId = socket.id;
+    }
+
+    socket.join(roomCode);
+    socket.roomCode = roomCode;
+
+    // Send them back their game state
+    socket.emit("rejoined", {
+      roomCode,
+      playerId: socket.id,
+      isHost: room.hostId === socket.id,
+      gameState: room.gameState,
+      players: room.players,
+      turnOrder: room.turnOrder,
+      roundNumber: room.roundNumber,
+      impostorId: room.impostorId,
+      word: room.currentWord,
+      category: room.currentCategory,
+    });
+
+    io.to(roomCode).emit("players_updated", { players: room.players });
+    console.log(`${playerName} rejoined room ${roomCode}`);
   });
 });
 

@@ -4,6 +4,7 @@ import "./App.css";
 
 const BACKEND_URL = "https://word-impostor-zyxb.onrender.com";
 const socket = io(BACKEND_URL, { autoConnect: false });
+const STORAGE_KEY = "word-impostor-session";
 
 const AVATAR_COLORS = ["#7c3aed","#06b6d4","#f59e0b","#ef4444","#22c55e","#ec4899","#8b5cf6","#14b8a6","#f97316","#84cc16","#e879f9","#38bdf8","#fb923c","#a3e635","#34d399"];
 
@@ -31,13 +32,22 @@ export default function App() {
   const [leaderboard, setLeaderboard] = useState(null);
 
   useEffect(() => {
-    socket.connect();
-
+    // Check if player was in a room before reload
+    const saved = sessionStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const { roomCode, playerName, isHost } = JSON.parse(saved);
+      socket.connect();
+      socket.emit("rejoin_room", { roomCode, playerName, isHost });
+    } else {
+      socket.connect();
+    }
     socket.on("room_created", ({ roomCode, playerId }) => {
       setRoomCode(roomCode); setPlayerId(playerId); setIsHost(true); setScreen("lobby");
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ roomCode, playerName, isHost: true }));
     });
     socket.on("room_joined", ({ roomCode, playerId }) => {
       setRoomCode(roomCode); setPlayerId(playerId); setIsHost(false); setScreen("lobby");
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ roomCode, playerName, isHost: false }));
     });
     socket.on("players_updated", ({ players }) => setPlayers(players));
     socket.on("game_started", ({ role, word, category, turnOrder, roundNumber, players }) => {
@@ -58,11 +68,40 @@ export default function App() {
     socket.on("error", ({ message }) => {
       setError(message); setTimeout(() => setError(""), 4000);
     });
+    socket.on("rejoined", ({ roomCode, playerId, isHost, gameState, players, turnOrder, roundNumber, word, category, impostorId }) => {
+      setRoomCode(roomCode);
+      setPlayerId(playerId);
+      setIsHost(isHost);
+      setPlayers(players);
+      setTurnOrder(turnOrder || []);
+      setRoundNumber(roundNumber || 0);
+
+      // Restore the right screen based on game state
+      if (gameState === "lobby") setScreen("lobby");
+      else if (gameState === "playing") {
+        // Figure out their role
+        const isImpostor = impostorId === playerId;
+        setRole(isImpostor ? "impostor" : "regular");
+        setWord(isImpostor ? null : word);
+        setCategory(category);
+        setScreen("game");
+      }
+      else if (gameState === "voting") setScreen("voting");
+      else if (gameState === "results") setScreen("results");
+    });
+
+    socket.on("rejoin_failed", () => {
+      // Room no longer exists, clear storage and go home
+      sessionStorage.removeItem(STORAGE_KEY);
+      setScreen("home");
+    });
 
     return () => {
       socket.off("room_created"); socket.off("room_joined"); socket.off("players_updated");
       socket.off("game_started"); socket.off("voting_started"); socket.off("vote_update");
       socket.off("results_revealed"); socket.off("game_ended"); socket.off("error");
+      socket.off("rejoined");
+      socket.off("rejoin_failed");
     };
   }, []);
 
@@ -86,6 +125,7 @@ export default function App() {
   function startNextRound() { socket.emit("start_game"); }
   function endGame() { socket.emit("end_game"); }
   function goHome() {
+    sessionStorage.removeItem(STORAGE_KEY);
     socket.disconnect(); socket.connect();
     setScreen("home"); setPlayerName(""); setRoomCode(""); setJoinCode("");
     setPlayerId(null); setIsHost(false); setPlayers([]); setRole(null);
